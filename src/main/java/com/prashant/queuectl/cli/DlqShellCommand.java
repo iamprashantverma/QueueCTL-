@@ -21,11 +21,13 @@ public class DlqShellCommand {
 
     @ShellMethod(key = "dlq list", value = "View jobs in Dead Letter Queue")
     public List<JobResponseDTO> listDlqJobs() {
+        log.debug("Retrieving jobs from Dead Letter Queue");
         return jobService.jobsByState(State.DEAD);
     }
 
     @ShellMethod(key = "dlq retry", value = "Retry a job from Dead Letter Queue")
     public JobResponseDTO retryDlqJob(@ShellOption(help = "Job ID to retry") Long jobId) {
+        log.info("Retrying job from DLQ: {}", jobId);
         return jobService.retryFromDlq(jobId);
     }
 }

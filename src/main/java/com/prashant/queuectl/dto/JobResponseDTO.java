@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class JobResponseDTO {
 
     private Long id;
+    private String command;
     private State state;
     private Integer attempts;
     private Integer maxRetries;

@@ -16,15 +16,18 @@ public class WorkerShellCommand {
 
     @ShellMethod(key = "worker start", value = "Start N background workers")
     public String startWorkers(@ShellOption int count) {
+        log.info("Starting {} worker(s)", count);
+        
         for (int i = 0; i < count; i++) {
             jobWorker.processJobs();
         }
-        return count + " worker(s) started!";
+        
+        return String.format("%d worker(s) started successfully", count);
     }
-
 
     @ShellMethod(key = "worker stop", value = "Stop running workers gracefully")
     public String stopWorkers() {
+        log.info("Initiating graceful shutdown of all workers");
         jobWorker.shutdown();
         return "Stopping all workers gracefully...";
     }

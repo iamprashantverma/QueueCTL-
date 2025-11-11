@@ -17,23 +17,25 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class JobWorker {
 
+    private static final long POLLING_INTERVAL_MS = 1000;
+    
     private final JobRepository jobRepository;
     private final AppConfig appConfig;
-    private volatile boolean running = true;
-
     private final Set<String> activeWorkers = ConcurrentHashMap.newKeySet();
+    
+    private volatile boolean running = true;
 
     @Async("jobExecutor")
     public void processJobs() {
         String workerName = Thread.currentThread().getName();
 
         if (!activeWorkers.add(workerName)) {
-            log.warn("Worker {} already running, skipping start.", workerName);
+            log.warn("Worker {} already running, skipping start", workerName);
             return;
         }
 
@@ -43,21 +45,18 @@ public class JobWorker {
             while (running) {
                 try {
                     processPendingJobs();
-                } catch (Exception e) {
-                    log.error("Unexpected exception in worker thread {}", workerName, e);
-                }
-
-                try {
-                    Thread.sleep(1000);
+                    Thread.sleep(POLLING_INTERVAL_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     running = false;
-                    log.info("Worker {} interrupted, shutting down...", workerName);
+                    log.info("Worker {} interrupted, shutting down", workerName);
+                } catch (Exception e) {
+                    log.error("Unexpected error in worker {}", workerName, e);
                 }
             }
         } finally {
             activeWorkers.remove(workerName);
-            log.info("Worker {} stopped gracefully.", workerName);
+            log.info("Worker {} stopped", workerName);
         }
     }
 
@@ -66,72 +65,88 @@ public class JobWorker {
         List<Job> pendingJobs = jobRepository.findPendingJobsForUpdate(State.PENDING);
 
         for (Job job : pendingJobs) {
-            if (job.getNextAttemptTime() != null && job.getNextAttemptTime().isAfter(LocalDateTime.now())) {
+            if (shouldSkipJob(job)) {
                 continue;
             }
 
             try {
                 executeJob(job);
             } catch (Exception e) {
-                log.error("Failed to execute job {}: ", job.getId(), e);
+                log.error("Failed to execute job {}", job.getId(), e);
+                handleFailure(job);
             }
         }
     }
 
+    private boolean shouldSkipJob(Job job) {
+        return job.getNextAttemptTime() != null && 
+               job.getNextAttemptTime().isAfter(LocalDateTime.now());
+    }
+
     @Transactional
     private void executeJob(Job job) {
-        job.setState(State.PROCESSING);
-        jobRepository.save(job);
-
+        updateJobState(job, State.PROCESSING);
         log.info("Executing job {}: {}", job.getId(), job.getCommand());
 
         try {
-            ProcessBuilder pb = new ProcessBuilder(job.getCommand().split(" "));
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                reader.lines().forEach(log::info);
-            }
-
-            int exitCode = process.waitFor();
-
+            int exitCode = runCommand(job.getCommand());
+            
             if (exitCode == 0) {
-                job.setState(State.COMPLETED);
+                updateJobState(job, State.COMPLETED);
                 log.info("Job {} completed successfully", job.getId());
             } else {
                 log.warn("Job {} failed with exit code {}", job.getId(), exitCode);
                 handleFailure(job);
             }
-
         } catch (Exception e) {
             log.error("Job {} execution failed", job.getId(), e);
             handleFailure(job);
-        } finally {
-            jobRepository.save(job);
         }
+    }
+
+    private int runCommand(String command) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(command.split(" "));
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            reader.lines().forEach(line -> log.debug("Command output: {}", line));
+        }
+
+        return process.waitFor();
     }
 
     @Transactional
     private void handleFailure(Job job) {
         job.setAttempts(job.getAttempts() + 1);
 
-        if (job.getAttempts() > appConfig.getMaxRetries()) {
-            job.setState(State.DEAD);
-            log.warn("Job {} moved to Dead Letter Queue", job.getId());
+        if (job.getAttempts() >= job.getMaxRetries()) {
+            updateJobState(job, State.DEAD);
+            log.warn("Job {} moved to Dead Letter Queue after {} attempts", job.getId(), job.getAttempts());
         } else {
-            long delay = (long) Math.pow(appConfig.getBackoffSeconds(), job.getAttempts());
-            job.setNextAttemptTime(LocalDateTime.now().plusSeconds(delay));
-            job.setState(State.PENDING);
-            log.info("Job {} failed, will retry after {} seconds", job.getId(), delay);
+            scheduleRetry(job);
         }
+    }
 
+    private void scheduleRetry(Job job) {
+        long delay = calculateBackoffDelay(job.getAttempts());
+        job.setNextAttemptTime(LocalDateTime.now().plusSeconds(delay));
+        updateJobState(job, State.PENDING);
+        log.info("Job {} scheduled for retry in {} seconds", job.getId(), delay);
+    }
+
+    private long calculateBackoffDelay(int attempts) {
+        return (long) Math.pow(appConfig.getBackoffSeconds(), attempts);
+    }
+
+    private void updateJobState(Job job, State state) {
+        job.setState(state);
         jobRepository.save(job);
     }
 
     public void shutdown() {
         running = false;
-        log.info("Shutting down JobWorker gracefully...");
+        log.info("Initiating JobWorker shutdown");
     }
 
     public boolean allWorkersStopped() {

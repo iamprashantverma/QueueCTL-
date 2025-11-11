@@ -14,9 +14,9 @@ import org.springframework.shell.standard.ShellOption;
 
 import java.util.List;
 
+@Slf4j
 @ShellComponent
 @RequiredArgsConstructor
-@Slf4j
 public class JobShellCommand {
 
     private final JobService jobService;
@@ -32,7 +32,7 @@ public class JobShellCommand {
 
     @ShellMethod(key = "enqueue", value = "Add a new job to the queue")
     public JobResponseDTO enqueue(@ShellOption(help = "Command to execute") String command) {
-
+        log.info("Enqueueing job: {}", command);
         JobRequestDTO jobRequestDTO = createJobRequestDto(command);
         return jobService.enqueueJob(jobRequestDTO);
     }
