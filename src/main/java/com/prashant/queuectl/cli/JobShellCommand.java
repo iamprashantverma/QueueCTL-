@@ -28,17 +28,20 @@ public class JobShellCommand {
                 .build();
     }
 
-    @ShellMethod(key = "enqueue", value = "Add a new job")
-    public JobResponseDTO enqueueJob(@ShellOption(help = "Command to execute") String command, @ShellOption(defaultValue = "3", help = "Max retries") int maxRetries) {
+    @ShellMethod(key = "enqueue", value = "Add a new job to the queue")
+    public JobResponseDTO enqueue(@ShellOption(help = "Command to execute") String command, @ShellOption(defaultValue = "3", help = "Max retries") int maxRetries) {
 
-        JobRequestDTO jobRequestDTO = createJobRequestDto(command,maxRetries);
-        return  jobService.enqueueJob(jobRequestDTO);
+        JobRequestDTO jobRequestDTO = createJobRequestDto(command, maxRetries);
+        return jobService.enqueueJob(jobRequestDTO);
     }
 
-    @ShellMethod(key = "status", value = "Get jobs by state")
-    public List<JobResponseDTO> jobByState(@ShellOption(help = "State of jobs to fetch") State state) {
+    @ShellMethod(key = "status", value = "Show summary of all job states")
+    public List<JobResponseDTO> status() {
+        return jobService.allJobs();
+    }
+
+    @ShellMethod(key = "list", value = "List jobs by state")
+    public List<JobResponseDTO> listJobs(@ShellOption(help = "State to filter") State state) {
         return jobService.jobsByState(state);
     }
-
-
 }

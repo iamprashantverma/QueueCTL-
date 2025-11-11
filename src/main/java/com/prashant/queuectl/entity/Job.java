@@ -21,13 +21,14 @@ public class Job {
     @Enumerated(EnumType.STRING)
     @NotNull(message = "Please give the state of the job")
     private State state;
+    private String command;
 
     private Integer attempts = 0;
-    private Integer max_retries = 3;
+    private Integer maxRetries = 3;
 
     @CreatedDate
-    private LocalDateTime created_at;
+    private LocalDateTime createdAt;
 
     @UpdateTimestamp
-    private LocalDateTime updated_at;
+    private LocalDateTime updatedAt;
 }
